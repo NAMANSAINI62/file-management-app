@@ -1,0 +1,1 @@
+This is a dummy resume for testing AI processing and file management operations. It contains experience in Python and React development.

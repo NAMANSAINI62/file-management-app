@@ -59,7 +59,12 @@ function UploadDropzone({ onUploadSuccess }) {
   // Backend par files bhejne ka function
   const handleUpload = async () => {
     if (files.length === 0) {
-      setErrors((prev) => [...prev, 'No files to upload']);
+      setErrors((prev) => {
+        if (prev.includes('No files to upload')) {
+          return prev;
+        }
+        return [...prev, 'No files to upload'];
+      });
       return;
     }
 
@@ -141,7 +146,15 @@ function UploadDropzone({ onUploadSuccess }) {
 
         {/* Upload aur Clear buttons */}
         <div className="mt-4 flex gap-2">
-          <button onClick={handleUpload} className="rounded-md bg-green-600 px-3 py-1 text-white active:scale-95">
+          <button 
+            onClick={handleUpload} 
+            disabled={files.length === 0}
+            className={`rounded-md px-3 py-1 text-white transition-all ${
+              files.length === 0 
+                ? 'bg-green-400 opacity-50 cursor-not-allowed' 
+                : 'bg-green-600 active:scale-95 cursor-pointer'
+            }`}
+          >
             {"Upload"}
           </button>
           <button

@@ -5,7 +5,6 @@ function FileList(props) {
   // Props ko simple variables mein daal diya (beginner friendly way)
   const files = props.files;
   const onRefresh = props.onRefresh;
-  const onShareClick = props.onShareClick;
 
   // Delete Modal ke liye naya state
   const [fileToDelete, setFileToDelete] = useState(null);

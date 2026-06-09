@@ -71,22 +71,6 @@ export async function deleteFile(fileId) {
   return resp.data;
 }
 
-// Direct axios helper for creating a share token
-export async function shareFile(fileId, expiryHours) {
-  const resp = await axios.post(`${API_BASE}/api/files/${fileId}/share`, { expiry_hours: expiryHours }, {
-    withCredentials: true,
-  });
-  return resp.data;
-}
-
-// Direct axios helper for fetching public share details
-export async function getSharedFileInfo(token) {
-  const resp = await axios.get(`${API_BASE}/api/share/${token}`, {
-    withCredentials: true,
-  });
-  return resp.data;
-}
-
 // app.py: Saara main logic, rules, database, aur brain yahan hota hai.
 // api.js: Iska kaam bas un routes (/api/login, /api/upload) ko call lagana hai aur wahan se data laakar React components ko dena hai.
 // with credentials true acts as a bridge for sending sensitive data across different network addresses.

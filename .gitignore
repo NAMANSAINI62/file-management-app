@@ -1,2 +1,39 @@
+# Dependency directories
+node_modules/
+
+# Local env files
 .env
+*.env
+.env.local
+.env.*.local
 backend/.env
+
+# Backend upload files (ignore all uploads but keep the directory layout if needed)
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Python cache and files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.venv/
+venv/
+ENV/
+
+# Production builds
+dist/
+dist-ssr/
+build/
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.log

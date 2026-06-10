@@ -3,6 +3,9 @@ flask-cors
 python-magic; platform_system != "Windows"
 python-magic-bin; platform_system == "Windows"
 psycopg2-binary
-google-generativeai
 pypdf
 python-dotenv
+openai
+PyJWT
+supabase
+gunicorn

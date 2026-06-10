@@ -66,9 +66,13 @@ function FileList(props) {
   // Function 5: Download button click hone par bina page refresh kiye download karna
   async function handleDownloadBtn(file) {
     try {
-      const response = await fetch(`${API_BASE}/api/files/${file.id}/download`);
+      const token = localStorage.getItem('authToken');
+      const response = await fetch(`${API_BASE}/api/files/${file.id}/download`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        redirect: 'follow',  // Supabase signed URL redirect follow karega
+      });
       if (!response.ok) throw new Error('Download failed');
-      
+
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');

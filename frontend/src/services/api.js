@@ -1,9 +1,14 @@
 import axios from 'axios';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000'; // lets you read .env file variable inside your JavaScript/React code and check if VITE_API_URL
-// is set in the .env file. If yes, use it. If not, use localhost:5000 as default.
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
-// Original file upload function
+// Helper: JWT token ko localStorage se read karo aur Authorization header banao
+function authHeader() {
+  const token = localStorage.getItem('authToken');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+// File upload
 export async function uploadFiles(payload) {
   let form;
   if (payload instanceof FormData) {
@@ -16,62 +21,55 @@ export async function uploadFiles(payload) {
   }
 
   const resp = await axios.post(`${API_BASE}/api/upload`, form, {
-    withCredentials: true,
-    headers: { 'Content-Type': 'multipart/form-data' },
+    headers: { 'Content-Type': 'multipart/form-data', ...authHeader() },
   });
-
   return resp.data;
 }
 
-// Direct axios helper for Signup
+// Signup
 export async function signupUser(email, password, name) {
-  const resp = await axios.post(`${API_BASE}/api/signup`, { email, password, name }, {
-    withCredentials: true,
-  });
+  const resp = await axios.post(`${API_BASE}/api/signup`, { email, password, name });
   return resp.data;
 }
 
-// Direct axios helper for Login
+// Login — returns { token, id, email, name }
 export async function loginUser(email, password) {
-  const resp = await axios.post(`${API_BASE}/api/login`, { email, password }, {
-    withCredentials: true,
-  });
+  const resp = await axios.post(`${API_BASE}/api/login`, { email, password });
   return resp.data;
 }
 
-// Direct axios helper for Logout
+// Logout
 export async function logoutUser() {
   const resp = await axios.post(`${API_BASE}/api/logout`, {}, {
-    withCredentials: true,
+    headers: authHeader(),
   });
   return resp.data;
 }
 
-// Direct axios helper for Checking session
+// Get current user (verify token with backend)
 export async function getCurrentUser() {
   const resp = await axios.get(`${API_BASE}/api/me`, {
-    withCredentials: true,
+    headers: authHeader(),
   });
   return resp.data;
 }
 
-// Direct axios helper for fetching user files
+// Fetch user files
 export async function getFiles() {
   const resp = await axios.get(`${API_BASE}/api/files`, {
-    withCredentials: true,  // browser se session cookie request saath jaaye jisse flask ko pta chle ki konsa user logged in hai.
+    headers: authHeader(),
   });
   return resp.data;
 }
 
-// Direct axios helper for deleting a file
+// Delete a file
 export async function deleteFile(fileId) {
   const resp = await axios.delete(`${API_BASE}/api/files/${fileId}`, {
-    withCredentials: true,
+    headers: authHeader(),
   });
   return resp.data;
 }
 
 // app.py: Saara main logic, rules, database, aur brain yahan hota hai.
 // api.js: Iska kaam bas un routes (/api/login, /api/upload) ko call lagana hai aur wahan se data laakar React components ko dena hai.
-// with credentials true acts as a bridge for sending sensitive data across different network addresses.
-// Cross-Origin Permission: It allows the browser to send cookies/session data between different addresses this helps browser to identify who is making request.
+// authHeader(): Har protected request ke saath JWT token Authorization header mein bhejta hai.

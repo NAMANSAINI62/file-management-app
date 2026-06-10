@@ -1,62 +1,70 @@
 import { createContext, useState, useEffect } from 'react';
 import { loginUser, signupUser, logoutUser, getCurrentUser } from '../services/api';
 
-// 1. Ek context box banaya jiske andar data share hoga
+// 1. Context box banaya jiske andar user data share hoga
 export const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
-  // States (Components ki Memory)
-  const [user, setUser] = useState(null); // User ka data store karne ke liye
-  const [isAuthenticated, setIsAuthenticated] = useState(false); // Logged in status (true/false)
-  const [loading, setLoading] = useState(true); // Page load hote waqt checking status
+  const [user, setUser] = useState(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  // 2. useEffect: Page load hote hi automatically backend se check karega ki user logged in hai ya nahi
+  // 2. Page load hote hi check karo ki localStorage mein token hai ya nahi
   useEffect(() => {
-    // : Async functions without try/catch will throw unhandled promise rejections.
     async function checkSession() {
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        setLoading(false);
+        return;
+      }
       try {
+        // Token hai toh backend se user data verify karo
         const data = await getCurrentUser();
-        // Agar backend user data return karta hai (session active hai)
         if (data.user) {
           setUser(data.user);
           setIsAuthenticated(true);
-        } 
+        } else {
+          // Token invalid ya expired hai toh hata do
+          localStorage.removeItem('authToken');
+        }
       } catch (err) {
-        console.log("No active session found.");
+        console.log("Session check failed, clearing token.");
+        localStorage.removeItem('authToken');
       } finally {
-        setLoading(false); // Checking finish ho gayi
+        setLoading(false);
       }
     }
     checkSession();
-  }, []); // [] khali hai, matlab yeh sirf page load par 1 baar chalega
+  }, []);
 
-  // 3. Login function: page isko call karega
+  // 3. Login: token ko localStorage mein save karo
   const login = async (email, password) => {
-    // api.js se direct axios call karenge
     const userData = await loginUser(email, password);
-    setUser(userData); // State update
-    setIsAuthenticated(true); // User ko log in mark kiya
+    // Backend se token aaya — use localStorage mein store karo
+    localStorage.setItem('authToken', userData.token);
+    setUser({ id: userData.id, email: userData.email, name: userData.name });
+    setIsAuthenticated(true);
   };
 
-  // 4. Signup function: registration page isko call karega
+  // 4. Signup
   const signup = async (email, password, name) => {
     await signupUser(email, password, name);
-    // Ab yahan direct login set nahi karenge, user khud login page par jayega
   };
 
-  // 5. Logout function
+  // 5. Logout: token ko localStorage se hata do
   const logout = async () => {
     try {
-      await logoutUser(); // Backend session remove karega
+      await logoutUser();
     } catch (err) {
       console.error("Logout error", err);
     } finally {
-      setUser(null); // User reset
-      setIsAuthenticated(false); // Logout status mark kiya
+      localStorage.removeItem('authToken'); // Token delete — user logged out
+      setUser(null);
+      setIsAuthenticated(false);
     }
   };
 
-  // 6. Loader Screen: Agar checks chal rahe hain, toh simple message dikhao
+  // 6. Loader screen while checking token
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-blue-100 text-slate-600 font-semibold">
@@ -65,7 +73,6 @@ export const AuthProvider = ({ children }) => {
     );
   }
 
-  // 7. Jab checking complete ho jaye, tab children pages (Login, Signup, Dashboard) render karo
   return (
     <AuthContext.Provider value={{ user, isAuthenticated, login, signup, logout }}>
       {children}

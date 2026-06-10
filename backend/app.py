@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, session, g, send_from_directory
+from flask import Flask, request, jsonify, g, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import os
@@ -10,10 +10,12 @@ import datetime
 import threading
 import json
 import re
+import jwt
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 from openai import OpenAI
 import pypdf
+from supabase import create_client, Client
 
 # Load environment variables from .env
 load_dotenv()
@@ -22,10 +24,6 @@ try:
     import magic  # type: ignore[import-not-found]
 except ImportError:
     magic = None
-
-BASE_DIR = os.path.dirname(__file__)
-UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 ALLOWED_EXT = {'.png', '.jpg', '.jpeg', '.pdf', '.doc', '.docx', '.txt'}
 
@@ -43,15 +41,16 @@ ALLOWED_MIME_BY_EXT = {
 }
 
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# secret key for sessions (change for production)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret')
+# JWT secret key
+JWT_SECRET = os.environ.get('JWT_SECRET', 'jwt-dev-secret-change-in-production')
 
+# 10 MB max upload size
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024
 
-# Allow requests from frontend dev server.
-CORS(app, supports_credentials=True)
+# CORS: allow requests from frontend with Authorization header
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
+CORS(app, supports_credentials=True, origins=[FRONTEND_URL], allow_headers=['Authorization', 'Content-Type'])
 
 # Configure Groq client (using openai SDK wrapper)
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
@@ -61,30 +60,41 @@ else:
     groq_client = None
 
 # PostgreSQL DB setup
+DATABASE_URL = os.environ.get('DATABASE_URL')  # Supabase connection string (full URI)
 DB_HOST = os.environ.get('DB_HOST', 'localhost')
 DB_PORT = os.environ.get('DB_PORT', '5432')
 DB_NAME = os.environ.get('DB_NAME', 'file_management')
 DB_USER = os.environ.get('DB_USER', 'postgres')
 DB_PASS = os.environ.get('DB_PASS', 'root')
 
+# Supabase Storage setup
+SUPABASE_URL = os.environ.get('SUPABASE_URL')
+SUPABASE_SERVICE_KEY = os.environ.get('SUPABASE_SERVICE_KEY')
+SUPABASE_BUCKET = os.environ.get('SUPABASE_BUCKET', 'uploads')
+
+supabase_client: Client = None
+if SUPABASE_URL and SUPABASE_SERVICE_KEY:
+    supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+
 def get_db():
     db = getattr(g, '_database', None)
     if db is None:
-        db = g._database = psycopg2.connect(
-            host=DB_HOST,
-            port=DB_PORT,
-            database=DB_NAME,
-            user=DB_USER,
-            password=DB_PASS
-        )
+        if DATABASE_URL:
+            # Use full connection URI (Supabase provides this)
+            db = g._database = psycopg2.connect(DATABASE_URL, sslmode='require')
+        else:
+            db = g._database = psycopg2.connect(
+                host=DB_HOST, port=DB_PORT,
+                database=DB_NAME, user=DB_USER, password=DB_PASS
+            )
     return db
 
 
 def init_db():
     db = get_db()
     cur = db.cursor(cursor_factory=RealDictCursor)
-    cur.execute(
-        '''
+    cur.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id SERIAL PRIMARY KEY,
             email TEXT UNIQUE NOT NULL,
@@ -92,10 +102,8 @@ def init_db():
             password_hash TEXT NOT NULL,
             created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         )
-        '''
-    )
-    cur.execute(
-        '''
+    ''')
+    cur.execute('''
         CREATE TABLE IF NOT EXISTS files (
             id SERIAL PRIMARY KEY,
             user_id INTEGER NOT NULL,
@@ -107,15 +115,12 @@ def init_db():
             category VARCHAR(50),
             FOREIGN KEY (user_id) REFERENCES users (id)
         )
-        '''
-    )
-    # Safely alter existing database tables if they already exist
+    ''')
     try:
         cur.execute("ALTER TABLE files ADD COLUMN IF NOT EXISTS summary TEXT")
         cur.execute("ALTER TABLE files ADD COLUMN IF NOT EXISTS category VARCHAR(50)")
     except Exception as e:
-        print(f"[Schema Update Info] Columns might already exist or error: {e}")
-        
+        print(f"[Schema Update Info] {e}")
     db.commit()
 
 
@@ -130,35 +135,61 @@ with app.app_context():
     init_db()
 
 
+# ─── JWT HELPERS ─────────────────────────────────────────────────────────────
+
+def create_token(user_id):
+    """Create a JWT token for the given user_id, expires in 7 days."""
+    payload = {
+        'user_id': user_id,
+        'exp': datetime.datetime.utcnow() + datetime.timedelta(days=7)
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm='HS256')
+
+
+def get_current_user_id():
+    """Read Bearer token from Authorization header and return user_id, or None."""
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return None
+    token = auth_header.split(' ', 1)[1]
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
+        return payload.get('user_id')
+    except jwt.ExpiredSignatureError:
+        return None
+    except jwt.InvalidTokenError:
+        return None
+
+
+# ─── FILE VALIDATION ──────────────────────────────────────────────────────────
+
 def allowed_extension(filename):
     ext = os.path.splitext(filename)[1].lower()
     return ext in ALLOWED_EXT
 
 
 def detect_mime(file_obj, filename):
-    # Read a small chunk and reset cursor so save() still works.
     chunk = file_obj.stream.read(2048)
     file_obj.stream.seek(0)
-
     if magic is not None:
         try:
             return magic.from_buffer(chunk, mime=True)
         except Exception:
             pass
-
     guessed = mimetypes.guess_type(filename)[0]
     return guessed or 'application/octet-stream'
 
 
 def allowed_mime(filename, mime_value):
     ext = os.path.splitext(filename)[1].lower()
-    # strip parameters like charset from mime (e.g. 'text/plain; charset=utf-8')
     mime_main = mime_value.split(';', 1)[0].strip().lower() if mime_value else ''
     expected = ALLOWED_MIME_BY_EXT.get(ext, set())
     if not expected:
         return False
     return mime_main in {m.lower() for m in expected}
 
+
+# ─── USER DB HELPERS ──────────────────────────────────────────────────────────
 
 def get_user_by_email(email):
     db = get_db()
@@ -173,6 +204,8 @@ def get_user_by_id(uid):
     cur.execute('SELECT id, email, name, created_at FROM users WHERE id = %s', (uid,))
     return cur.fetchone()
 
+
+# ─── AUTH ROUTES ──────────────────────────────────────────────────────────────
 
 @app.route('/api/signup', methods=['POST'])
 def signup():
@@ -190,12 +223,14 @@ def signup():
     pw_hash = generate_password_hash(password)
     db = get_db()
     cur = db.cursor(cursor_factory=RealDictCursor)
-    cur.execute('INSERT INTO users (email, name, password_hash) VALUES (%s, %s, %s) RETURNING id', (email, name, pw_hash))
+    cur.execute(
+        'INSERT INTO users (email, name, password_hash) VALUES (%s, %s, %s) RETURNING id',
+        (email, name, pw_hash)
+    )
     db.commit()
     user_id = cur.fetchone()['id']
-    # session['user_id'] = user_id  # Ab direct login nahi karwana
     user = get_user_by_id(user_id)
-    return jsonify({'id': user['id'], 'email': user['email'], 'name': user['name'], 'message': 'Account created successfully'}), 201 # data ko JSON me banata hai.
+    return jsonify({'id': user['id'], 'email': user['email'], 'name': user['name'], 'message': 'Account created successfully'}), 201
 
 
 @app.route('/api/login', methods=['POST'])
@@ -208,26 +243,24 @@ def login():
         return jsonify({'error': 'email and password required'}), 400
 
     row = get_user_by_email(email)
-    if not row:
+    if not row or not check_password_hash(row['password_hash'], password):
         return jsonify({'error': 'invalid credentials'}), 401
 
-    if not check_password_hash(row['password_hash'], password):
-        return jsonify({'error': 'invalid credentials'}), 401
-
-    session['user_id'] = row['id']
+    token = create_token(row['id'])
     user = get_user_by_id(row['id'])
-    return jsonify({'id': user['id'], 'email': user['email'], 'name': user['name']}), 200
+    # Return token along with user data — frontend stores this in localStorage
+    return jsonify({'token': token, 'id': user['id'], 'email': user['email'], 'name': user['name']}), 200
 
 
 @app.route('/api/logout', methods=['POST'])
 def logout():
-    session.pop('user_id', None)
+    # JWT is stateless — logout is handled on the frontend by deleting the token
     return jsonify({'ok': True})
 
 
 @app.route('/api/me', methods=['GET'])
 def me():
-    uid = session.get('user_id')
+    uid = get_current_user_id()
     if not uid:
         return jsonify({'user': None}), 200
     user = get_user_by_id(uid)
@@ -236,40 +269,37 @@ def me():
     return jsonify({'user': {'id': user['id'], 'email': user['email'], 'name': user['name']}}), 200
 
 
+# ─── AI SUMMARY PROCESSOR ─────────────────────────────────────────────────────
 
-def process_file_ai(file_id, file_path, original_name, mime_type):
-    # Since we are in a background thread, we must manage its own DB connection
+def process_file_ai(file_id, file_bytes, original_name, mime_type):
+    """Background thread: extract text, call Groq, save summary to DB."""
     db = None
+    tmp_path = None
     try:
-        db = psycopg2.connect(
-            host=DB_HOST,
-            port=DB_PORT,
-            database=DB_NAME,
-            user=DB_USER,
-            password=DB_PASS
-        )
+        # Write bytes to a temp file so pypdf/txt can read it
+        import tempfile
+        ext = os.path.splitext(original_name)[1].lower()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+            tmp.write(file_bytes)
+            tmp_path = tmp.name
+
+        if DATABASE_URL:
+            db = psycopg2.connect(DATABASE_URL, sslmode='require')
+        else:
+            db = psycopg2.connect(host=DB_HOST, port=DB_PORT, database=DB_NAME, user=DB_USER, password=DB_PASS)
+
         cur = db.cursor(cursor_factory=RealDictCursor)
-        
+
         if not GROQ_API_KEY or not groq_client:
-            cur.execute(
-                "UPDATE files SET summary = %s WHERE id = %s",
-                ("Groq API key not configured in .env", file_id)
-            )
+            cur.execute("UPDATE files SET summary = %s WHERE id = %s", ("Groq API key not configured", file_id))
             db.commit()
             return
 
-        summary = "No summary available"
-        new_name = original_name
-        
-        ext = os.path.splitext(original_name)[1].lower()
         extracted_text = ""
-        
-        # 1. Extract text if applicable
         if ext == '.pdf':
             try:
-                reader = pypdf.PdfReader(file_path)
-                num_pages = min(len(reader.pages), 5)
-                for i in range(num_pages):
+                reader = pypdf.PdfReader(tmp_path)
+                for i in range(min(len(reader.pages), 5)):
                     page_text = reader.pages[i].extract_text()
                     if page_text:
                         extracted_text += page_text + "\n"
@@ -277,15 +307,11 @@ def process_file_ai(file_id, file_path, original_name, mime_type):
                 print(f"Error reading PDF {original_name}: {e}")
         elif ext == '.txt':
             try:
-                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    extracted_text = f.read(10000)
+                extracted_text = file_bytes.decode('utf-8', errors='ignore')[:10000]
             except Exception as e:
                 print(f"Error reading TXT {original_name}: {e}")
-                
-        # 2. Call Groq API in a separate thread with a 2-second timeout
-        response_text = ""
-        
-        prompt = f"""You are a file management assistant. Please analyze the following file and provide a concise, clear 1-2 sentence explanation summary of what is in the file.
+
+        prompt = f"""You are a file management assistant. Analyze the file and give a concise 1-2 sentence summary of what is in it.
 Original Name: '{original_name}'
 Mime Type: '{mime_type}'
 """
@@ -294,131 +320,92 @@ Mime Type: '{mime_type}'
         else:
             prompt += "\nNo text content could be extracted from this file."
 
+        response_text = ""
+
         def call_groq():
             nonlocal response_text
-            import urllib.request
-            import json
-            
+            import urllib.request as urlreq
             url = "https://api.groq.com/openai/v1/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {GROQ_API_KEY}",
-                "Content-Type": "application/json"
-            }
-            
+            headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+
             def make_request(model_name):
-                data = {
-                    "messages": [{"role": "user", "content": prompt}],
-                    "model": model_name,
-                    "temperature": 0.2,
-                    "max_tokens": 150,
-                    "user": "file-management-system"
-                }
-                req = urllib.request.Request(url, data=json.dumps(data).encode('utf-8'), headers=headers, method="POST")
-                with urllib.request.urlopen(req, timeout=10) as response:
-                    return json.loads(response.read().decode('utf-8'))
+                data = {"messages": [{"role": "user", "content": prompt}], "model": model_name,
+                        "temperature": 0.2, "max_tokens": 150}
+                req = urlreq.Request(url, data=json.dumps(data).encode('utf-8'), headers=headers, method="POST")
+                with urlreq.urlopen(req, timeout=10) as resp:
+                    return json.loads(resp.read().decode('utf-8'))
 
             try:
                 result = make_request("llama-3.1-8b-instant")
                 msg = result["choices"][0]["message"]
-                if msg.get('refusal'):
-                    print(f"API refusal: {msg['refusal']}")
-                else:
+                if not msg.get('refusal'):
                     response_text = msg.get('content', '')
-            except Exception as api_err:
-                print(f"Failed with llama-3.1-8b-instant: {api_err}. Trying fallback model...")
+            except Exception:
                 try:
                     result = make_request("llama-3.3-70b-versatile")
                     msg = result["choices"][0]["message"]
-                    if msg.get('refusal'):
-                        print(f"Fallback API refusal: {msg['refusal']}")
-                    else:
+                    if not msg.get('refusal'):
                         response_text = msg.get('content', '')
-                except Exception as fallback_err:
-                    print(f"Fallback model failed: {fallback_err}")
+                except Exception as e:
+                    print(f"Groq fallback failed: {e}")
 
-        # Start Groq thread
         groq_thread = threading.Thread(target=call_groq)
         groq_thread.start()
-        groq_thread.join(timeout=2.0)  # Wait for maximum 2 seconds
+        groq_thread.join(timeout=15.0)
 
-        if groq_thread.is_alive() or not response_text:
-            print("[Timeout] Groq API took longer than 2 seconds. Switching to fast local summary model...")
-            # Local summaries using a high performance, very lightweight distilbart summary or rule-based fallback
-            try:
-                from transformers import pipeline
-                # Initialize summarizer (very small and cached model)
-                summarizer = pipeline("summarization", model="sshleifer/distilbart-cnn-6-6", device=-1)
-                text_to_summarize = extracted_text.strip()[:1024] if extracted_text.strip() else f"Metadata check for {original_name} of type {mime_type}."
-                if len(text_to_summarize) < 30:
-                    text_to_summarize = text_to_summarize + " (supplementary text to reach minimum context length for model summary)"
-                local_res = summarizer(text_to_summarize, max_length=50, min_length=15, do_sample=False)
-                summary = local_res[0]['summary_text']
-                print(f"[Local AI Processor] Generated local model summary: {summary}")
-            except Exception as local_err:
-                print(f"[Local Fallback Error] {local_err}. Using rule-based local extractor...")
-                # High-performance rule-based semantic extractor to guarantee immediate output
-                if extracted_text.strip():
-                    summary = f"Local Scan: The file contains text starting with: '{extracted_text.strip()[:100]}...'"
-                else:
-                    summary = f"Local Scan: Metadata check for {original_name} of type {mime_type}."
-        else:
+        if response_text:
             summary = response_text.strip()
-                
-        # 4. Save to Database
-        cur.execute(
-            "UPDATE files SET summary = %s WHERE id = %s",
-            (summary, file_id)
-        )
+        elif extracted_text.strip():
+            summary = f"The file contains text starting with: '{extracted_text.strip()[:150]}...'"
+        else:
+            summary = f"No text content could be extracted from this {ext} file."
+
+        cur.execute("UPDATE files SET summary = %s WHERE id = %s", (summary, file_id))
         db.commit()
-        print(f"[AI Processor] Successfully generated summary for file ID {file_id}: {summary}")
-        
+        print(f"[AI Processor] Summary saved for file ID {file_id}")
+
     except Exception as e:
-        error_msg = f"AI Error: {str(e)[:50]}"
         print(f"[AI Processor Error] {e}")
         try:
-            cur.execute(
-                "UPDATE files SET summary = %s WHERE id = %s",
-                (error_msg, file_id)
-            )
+            cur.execute("UPDATE files SET summary = %s WHERE id = %s", (f"AI Error: {str(e)[:80]}", file_id))
             db.commit()
         except Exception:
             pass
     finally:
         if db:
             db.close()
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
+
+# ─── FILE ROUTES ──────────────────────────────────────────────────────────────
 
 @app.route('/api/upload', methods=['POST'])
 def upload():
-    uid = session.get('user_id')
+    uid = get_current_user_id()
     if not uid:
         return jsonify({'error': 'Unauthorized, please login first'}), 401
 
     files = []
-    # support both 'files' (multiple) and single 'file'
     if 'files' in request.files:
-        files = request.files.getlist('files') # get() single item nikalta hai
+        files = request.files.getlist('files')
     elif 'file' in request.files:
-        files = [request.files.get('file')]   # getlist() same key ke saare items ki list deta hai.
+        files = [request.files.get('file')]
     else:
         return jsonify({'error': 'no file provided'}), 400
 
     saved = []
     errors = []
 
-    for f in files:   # f is just a file object variable 
+    for f in files:
         if not f or f.filename == '':
             errors.append('empty filename')
             continue
 
-        filename = secure_filename(f.filename) # user ke uploaded file name ko safe banata hai. unsafe characters, spaces, aur path ko remove krta hh or normalise krta hh
+        filename = secure_filename(f.filename)
         if not allowed_extension(filename):
             errors.append(f"{filename}: invalid extension")
             continue
-
-        # detect_mime() file ka MIME type identify karta hai,
-        # aur allowed_mime() verify karta hai ki wo type permitted hai ya nahi
-        # Agar mismatch ho to file reject kar di jaati hai.
 
         detected_mime = detect_mime(f, filename)
         if not allowed_mime(filename, detected_mime):
@@ -428,44 +415,57 @@ def upload():
         ext = os.path.splitext(filename)[1].lower()
         file_uuid = uuid.uuid4().hex
         save_name = f"{file_uuid}{ext}"
-        dest = os.path.join(app.config['UPLOAD_FOLDER'], save_name)  # folder path aur filename ko jod kar full path banata hai.
+
         try:
-            f.save(dest)
-            f_size = os.path.getsize(dest)
-            
-            # Database mein file ki details save karein (with default AI status values)
+            file_bytes = f.read()
+            f_size = len(file_bytes)
+
+            # Upload to Supabase Storage
+            if supabase_client:
+                supabase_client.storage.from_(SUPABASE_BUCKET).upload(
+                    path=save_name,
+                    file=file_bytes,
+                    file_options={"content-type": detected_mime}
+                )
+            else:
+                errors.append(f"{filename}: Supabase storage not configured")
+                continue
+
+            # Save record to DB
             db = get_db()
             cur = db.cursor(cursor_factory=RealDictCursor)
             cur.execute(
-                'INSERT INTO files (user_id, original_name, stored_name, file_size, summary, category) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id', 
+                'INSERT INTO files (user_id, original_name, stored_name, file_size, summary, category) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id',
                 (uid, filename, save_name, f_size, 'Processing...', 'Detecting...')
             )
             file_id = cur.fetchone()['id']
             db.commit()
-            
-            # Start background AI processing
+
+            # Background AI processing (pass bytes so we don't need local disk)
             threading.Thread(
                 target=process_file_ai,
-                args=(file_id, dest, filename, detected_mime)
+                args=(file_id, file_bytes, filename, detected_mime)
             ).start()
-            
+
             saved.append({'original': filename, 'stored': save_name, 'size': f_size})
         except Exception as e:
+            print(f"Upload error: {e}")
             errors.append(f"{filename}: save error")
 
     return jsonify({'saved': saved, 'errors': errors}), (400 if errors and not saved else 200)
 
+
 @app.route('/api/files', methods=['GET'])
 def get_user_files():
-    uid = session.get('user_id')
+    uid = get_current_user_id()
     if not uid:
         return jsonify({'error': 'Unauthorized'}), 401
-    
-    db = get_db() # database connection milta hai.
-    cur = db.cursor(cursor_factory=RealDictCursor) # ekk cursor banaya jata hh jisse SQL query execute karne ke liye.
+
+    db = get_db()
+    cur = db.cursor(cursor_factory=RealDictCursor)
     cur.execute('SELECT * FROM files WHERE user_id = %s ORDER BY created_at DESC', (uid,))
-    files = cur.fetchall() # 
-    
+    files = cur.fetchall()
+
     result = []
     for row in files:
         result.append({
@@ -478,42 +478,60 @@ def get_user_files():
         })
     return jsonify(result), 200
 
+
 @app.route('/api/files/<int:file_id>/download', methods=['GET'])
 def download_file(file_id):
-    db = get_db()
-    cur = db.cursor(cursor_factory=RealDictCursor)
-    cur.execute('SELECT * FROM files WHERE id = %s', (file_id,))
-    row = cur.fetchone()
-    
-    if not row:
-        return "File not found", 404
-        
-    return send_from_directory(app.config['UPLOAD_FOLDER'], row['stored_name'], as_attachment=True, download_name=row['original_name'])
-
-@app.route('/api/files/<int:file_id>', methods=['DELETE'])
-def delete_user_file(file_id):
-    uid = session.get('user_id')
+    uid = get_current_user_id()
     if not uid:
         return jsonify({'error': 'Unauthorized'}), 401
-        
+
     db = get_db()
     cur = db.cursor(cursor_factory=RealDictCursor)
     cur.execute('SELECT * FROM files WHERE id = %s AND user_id = %s', (file_id, uid))
     row = cur.fetchone()
-    
+
+    if not row:
+        return jsonify({'error': 'File not found'}), 404
+
+    if not supabase_client:
+        return jsonify({'error': 'Storage not configured'}), 500
+
+    # Generate a signed URL (valid for 60 seconds) — redirect user to it
+    signed = supabase_client.storage.from_(SUPABASE_BUCKET).create_signed_url(
+        path=row['stored_name'],
+        expires_in=60
+    )
+    from flask import redirect
+    return redirect(signed['signedURL'])
+
+
+@app.route('/api/files/<int:file_id>', methods=['DELETE'])
+def delete_user_file(file_id):
+    uid = get_current_user_id()
+    if not uid:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    db = get_db()
+    cur = db.cursor(cursor_factory=RealDictCursor)
+    cur.execute('SELECT * FROM files WHERE id = %s AND user_id = %s', (file_id, uid))
+    row = cur.fetchone()
+
     if not row:
         return jsonify({'error': 'File not found or access denied'}), 404
-        
-    # Delete from filesystem
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], row['stored_name'])
-    if os.path.exists(filepath):
-        os.remove(filepath)
-        
+
+    # Delete from Supabase Storage
+    if supabase_client:
+        try:
+            supabase_client.storage.from_(SUPABASE_BUCKET).remove([row['stored_name']])
+        except Exception as e:
+            print(f"Storage delete error: {e}")
+
     # Delete from database
     cur.execute('DELETE FROM files WHERE id = %s', (file_id,))
     db.commit()
-    
+
     return jsonify({'ok': True}), 200
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

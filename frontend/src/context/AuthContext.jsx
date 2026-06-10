@@ -5,9 +5,10 @@ import { loginUser, signupUser, logoutUser, getCurrentUser } from '../services/a
 export const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [loading, setLoading] = useState(true);
+  // States (Components ki Memory)
+  const [user, setUser] = useState(null); // User ka data store karne ke liye
+  const [isAuthenticated, setIsAuthenticated] = useState(false); // Logged in status (true/false)
+  const [loading, setLoading] = useState(true); // Page load hote waqt checking status
 
   // 2. Page load hote hi check karo ki localStorage mein token hai ya nahi
   useEffect(() => {

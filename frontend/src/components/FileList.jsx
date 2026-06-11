@@ -12,8 +12,8 @@ function FileList(props) {
   // Summary Modal ke liye state — jab user "Summary" button dabaye toh yeh file store hogi
   const [summaryFile, setSummaryFile] = useState(null);
 
-  // Backend server ka address
-  const API_BASE = 'http://localhost:5000';
+  // Backend server ka address — production mein VITE_API_URL se aayega
+  const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
   // Function 1: Bytes ko simple KB ya MB mein badalna (using basic if-else)
   function formatSize(bytes) {

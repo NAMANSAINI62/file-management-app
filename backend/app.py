@@ -59,6 +59,7 @@ if GROQ_API_KEY:
 else:
     groq_client = None
 
+
 # PostgreSQL DB setup
 DATABASE_URL = os.environ.get('DATABASE_URL')  # Supabase connection string (full URI)
 DB_HOST = os.environ.get('DB_HOST', 'localhost')
@@ -78,9 +79,9 @@ if SUPABASE_URL and SUPABASE_SERVICE_KEY:
 
 
 def get_db():
-    db = getattr(g, '_database', None)
-    if db is None:
-        if DATABASE_URL:
+    db = getattr(g, '_database', None) # _ is a python naming convention which is used for internal use 
+    if db is None: 
+        if DATABASE_URL:  
             # Use full connection URI (Supabase provides this)
             db = g._database = psycopg2.connect(DATABASE_URL, sslmode='require')
         else:
@@ -130,10 +131,10 @@ def close_connection(exception):
     if db is not None:
         db.close()
 
-
-with app.app_context():
-    init_db()
-
+# it is a context which provide g and _database in init_db.
+# app_context:- it creates context , app:- flask application object , 
+with app.app_context(): 
+    init_db() 
 
 # ─── JWT HELPERS ─────────────────────────────────────────────────────────────
 
@@ -358,7 +359,7 @@ Mime Type: '{mime_type}'
         elif extracted_text.strip():
             summary = f"The file contains text starting with: '{extracted_text.strip()[:150]}...'"
         else:
-            summary = f"No text content could be extracted from this {ext} file."
+            summary = f"No content could be extracted from this {ext} file."
 
         cur.execute("UPDATE files SET summary = %s WHERE id = %s", (summary, file_id))
         db.commit()

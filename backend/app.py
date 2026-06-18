@@ -12,83 +12,55 @@ import json
 import re
 import jwt
 from werkzeug.security import generate_password_hash, check_password_hash
-from dotenv import load_dotenv
 from openai import OpenAI
 import pypdf
 from supabase import create_client, Client
 
-# Load environment variables from .env
-load_dotenv()
+# Import secure configuration (all credentials from .env)
+from config import Config
 
 try:
     import magic  # type: ignore[import-not-found]
 except ImportError:
     magic = None
 
-ALLOWED_EXT = {'.png', '.jpg', '.jpeg', '.pdf', '.doc', '.docx', '.txt'}
-
-ALLOWED_MIME_BY_EXT = {
-    '.png': {'image/png'},
-    '.jpg': {'image/jpeg'},
-    '.jpeg': {'image/jpeg'},
-    '.pdf': {'application/pdf'},
-    '.doc': {'application/msword', 'application/octet-stream'},
-    '.docx': {
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'application/zip',
-    },
-    '.txt': {'text/plain'},
-}
-
 app = Flask(__name__)
 
-# JWT secret key
-JWT_SECRET = os.environ.get('JWT_SECRET', 'jwt-dev-secret-change-in-production')
-
-# 10 MB max upload size
-app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024
+# Load configuration from secure config module
+app.config['MAX_CONTENT_LENGTH'] = Config.MAX_CONTENT_LENGTH
+app.config['JWT_SECRET'] = Config.JWT_SECRET
 
 # CORS: allow requests from frontend with Authorization header
-FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
-CORS(app, supports_credentials=True, origins=[FRONTEND_URL], allow_headers=['Authorization', 'Content-Type'])
+CORS(app, supports_credentials=True, origins=[Config.FRONTEND_URL], allow_headers=['Authorization', 'Content-Type'])
 
 # Configure Groq client (using openai SDK wrapper)
-GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
-if GROQ_API_KEY:
-    groq_client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=GROQ_API_KEY)
-else:
-    groq_client = None
-
-
-# PostgreSQL DB setup
-DATABASE_URL = os.environ.get('DATABASE_URL')  # Supabase connection string (full URI)
-DB_HOST = os.environ.get('DB_HOST', 'localhost')
-DB_PORT = os.environ.get('DB_PORT', '5432')
-DB_NAME = os.environ.get('DB_NAME', 'file_management')
-DB_USER = os.environ.get('DB_USER', 'postgres')
-DB_PASS = os.environ.get('DB_PASS', 'root')
+groq_client = None
+if Config.GROQ_API_KEY:
+    groq_client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=Config.GROQ_API_KEY)
 
 # Supabase Storage setup
-SUPABASE_URL = os.environ.get('SUPABASE_URL')
-SUPABASE_SERVICE_KEY = os.environ.get('SUPABASE_SERVICE_KEY')
-SUPABASE_BUCKET = os.environ.get('SUPABASE_BUCKET', 'uploads')
-
 supabase_client: Client = None
-if SUPABASE_URL and SUPABASE_SERVICE_KEY:
-    supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+if Config.SUPABASE_URL and Config.SUPABASE_SERVICE_KEY:
+    supabase_client = create_client(Config.SUPABASE_URL, Config.SUPABASE_SERVICE_KEY)
+
+# Use configuration values
+ALLOWED_EXT = Config.ALLOWED_EXTENSIONS
+ALLOWED_MIME_BY_EXT = Config.ALLOWED_MIME_BY_EXT
+JWT_SECRET = Config.JWT_SECRET
+DATABASE_URL = Config.DATABASE_URL
+GROQ_API_KEY = Config.GROQ_API_KEY
+SUPABASE_BUCKET = Config.SUPABASE_BUCKET
 
 
 def get_db():
-    db = getattr(g, '_database', None) # _ is a python naming convention which is used for internal use 
-    if db is None: 
-        if DATABASE_URL:  
-            # Use full connection URI (Supabase provides this)
+    db = getattr(g, '_database', None)
+    if db is None:
+        # DATABASE_URL is guaranteed to exist from Config validation
+        # Check if it's a Supabase connection (contains SSL requirement)
+        if 'supabase' in DATABASE_URL.lower():
             db = g._database = psycopg2.connect(DATABASE_URL, sslmode='require')
         else:
-            db = g._database = psycopg2.connect(
-                host=DB_HOST, port=DB_PORT,
-                database=DB_NAME, user=DB_USER, password=DB_PASS
-            )
+            db = g._database = psycopg2.connect(DATABASE_URL)
     return db
 
 
@@ -130,9 +102,7 @@ def close_connection(exception):
     db = getattr(g, '_database', None)
     if db is not None:
         db.close()
-
-# it is a context which provide g and _database in init_db.
-# app_context:- it creates context , app:- flask application object , 
+ 
 with app.app_context(): 
     init_db() 
 
@@ -285,9 +255,9 @@ def process_file_ai(file_id, file_bytes, original_name, mime_type):
             tmp_path = tmp.name
 
         if DATABASE_URL:
-            db = psycopg2.connect(DATABASE_URL, sslmode='require')
+            db = psycopg2.connect(DATABASE_URL, sslmode='require' if 'supabase' in DATABASE_URL.lower() else False)
         else:
-            db = psycopg2.connect(host=DB_HOST, port=DB_PORT, database=DB_NAME, user=DB_USER, password=DB_PASS)
+            raise ValueError("DATABASE_URL must be configured in .env file")
 
         cur = db.cursor(cursor_factory=RealDictCursor)
 

@@ -9,7 +9,6 @@ from psycopg2.extras import RealDictCursor
 import datetime
 import threading
 import json
-import re
 import jwt
 from werkzeug.security import generate_password_hash, check_password_hash
 from openai import OpenAI
@@ -30,7 +29,6 @@ app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = Config.MAX_CONTENT_LENGTH
 app.config['JWT_SECRET'] = Config.JWT_SECRET
 
-# CORS: allow requests from frontend with Authorization header
 CORS(app, supports_credentials=True, origins=[Config.FRONTEND_URL], allow_headers=['Authorization', 'Content-Type'])
 
 # Configure Groq client (using openai SDK wrapper)
@@ -43,7 +41,6 @@ supabase_client: Client = None
 if Config.SUPABASE_URL and Config.SUPABASE_SERVICE_KEY:
     supabase_client = create_client(Config.SUPABASE_URL, Config.SUPABASE_SERVICE_KEY)
 
-# Use configuration values
 ALLOWED_EXT = Config.ALLOWED_EXTENSIONS
 ALLOWED_MIME_BY_EXT = Config.ALLOWED_MIME_BY_EXT
 JWT_SECRET = Config.JWT_SECRET
@@ -282,12 +279,17 @@ def process_file_ai(file_id, file_bytes, original_name, mime_type):
             except Exception as e:
                 print(f"Error reading TXT {original_name}: {e}")
 
-        prompt = f"""You are a file management assistant. Analyze the file and give a concise 1-2 sentence summary of what is in it.
-Original Name: '{original_name}'
+        prompt = f"""You are an expert document analyzer. Read the provided file snippet and write a direct, concise 1-2 sentence summary of the actual content inside the file.
+CRITICAL RULES:
+- DO NOT start with "This file is a..." or "The file contains...".
+- Just output the pure facts of what the text is about.
+- Write EXACTLY ONE paragraph, nothing else.
+
+File Name: '{original_name}'
 Mime Type: '{mime_type}'
 """
         if extracted_text.strip():
-            prompt += f"\nFile content snippet:\n{extracted_text[:6000]}"
+            prompt += f"\nContent Snippet:\n{extracted_text[:6000]}"
         else:
             prompt += "\nNo text content could be extracted from this file."
 
@@ -327,7 +329,9 @@ Mime Type: '{mime_type}'
         if response_text:
             summary = response_text.strip()
         elif extracted_text.strip():
-            summary = f"The file contains text starting with: '{extracted_text.strip()[:150]}...'"
+            # Clean fallback if API fails
+            clean_text = extracted_text.strip().replace('\n', ' ')
+            summary = f"{clean_text[:150]}..."
         else:
             summary = f"No content could be extracted from this {ext} file."
 

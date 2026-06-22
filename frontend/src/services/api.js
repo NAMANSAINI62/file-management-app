@@ -66,7 +66,7 @@ export async function getFiles() {
 export async function deleteFile(fileId) {
   const resp = await axios.delete(`${API_BASE}/api/files/${fileId}`, {
     headers: authHeader(),
-  });
+  }); 
   return resp.data;
 }
 

@@ -11,7 +11,8 @@ import threading
 import json
 import jwt
 from werkzeug.security import generate_password_hash, check_password_hash
-from openai import OpenAI
+from google.generativeai import GenerativeModel, configure
+from google.generativeai.types import HarmCategory, HarmBlockThreshold, SafetySetting
 import pypdf
 from supabase import create_client, Client
 
@@ -31,11 +32,6 @@ app.config['JWT_SECRET'] = Config.JWT_SECRET
 
 CORS(app, supports_credentials=True, origins=[Config.FRONTEND_URL], allow_headers=['Authorization', 'Content-Type'])
 
-# Configure Groq client (using openai SDK wrapper)
-groq_client = None
-if Config.GROQ_API_KEY:
-    groq_client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=Config.GROQ_API_KEY)
-
 # Supabase Storage setup
 supabase_client: Client = None
 if Config.SUPABASE_URL and Config.SUPABASE_SERVICE_KEY:
@@ -45,7 +41,9 @@ ALLOWED_EXT = Config.ALLOWED_EXTENSIONS
 ALLOWED_MIME_BY_EXT = Config.ALLOWED_MIME_BY_EXT
 JWT_SECRET = Config.JWT_SECRET
 DATABASE_URL = Config.DATABASE_URL
-GROQ_API_KEY = Config.GROQ_API_KEY
+GEMINI_API_KEY = Config.GEMINI_API_KEY
+if GEMINI_API_KEY:
+    configure(api_key=GEMINI_API_KEY)
 SUPABASE_BUCKET = Config.SUPABASE_BUCKET
 
 
@@ -240,11 +238,11 @@ def me():
 # ─── AI SUMMARY PROCESSOR ─────────────────────────────────────────────────────
 
 def process_file_ai(file_id, file_bytes, original_name, mime_type):
-    """Background thread: extract text, call Groq, save summary to DB."""
+    """Background thread: extract text and summarize file."""
     db = None
     tmp_path = None
     try:
-        # Write bytes to a temp file so pypdf/txt can read it
+        # If GEMINI API key is missing, store a helpful message and exit early
         import tempfile
         ext = os.path.splitext(original_name)[1].lower()
         with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
@@ -258,8 +256,8 @@ def process_file_ai(file_id, file_bytes, original_name, mime_type):
 
         cur = db.cursor(cursor_factory=RealDictCursor)
 
-        if not GROQ_API_KEY or not groq_client:
-            cur.execute("UPDATE files SET summary = %s WHERE id = %s", ("Groq API key not configured", file_id))
+        if not Config.GEMINI_API_KEY:
+            cur.execute("UPDATE files SET summary = %s WHERE id = %s", ("Gemini API key not configured", file_id))
             db.commit()
             return
 
@@ -309,36 +307,25 @@ Mime Type: '{mime_type}'
 
         response_text = ""
 
-        def call_groq():
+        def call_gemini():
             nonlocal response_text
-            import urllib.request as urlreq
-            url = "https://api.groq.com/openai/v1/chat/completions"
-            headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-
-            def make_request(model_name):
-                data = {"messages": [{"role": "user", "content": prompt}], "model": model_name,
-                        "temperature": 0.2, "max_tokens": 150}
-                req = urlreq.Request(url, data=json.dumps(data).encode('utf-8'), headers=headers, method="POST")
-                with urlreq.urlopen(req, timeout=10) as resp:
-                    return json.loads(resp.read().decode('utf-8'))
-
             try:
-                result = make_request("llama-3.1-8b-instant")
-                msg = result["choices"][0]["message"]
-                if not msg.get('refusal'):
-                    response_text = msg.get('content', '')
-            except Exception:
-                try:
-                    result = make_request("llama-3.3-70b-versatile")
-                    msg = result["choices"][0]["message"]
-                    if not msg.get('refusal'):
-                        response_text = msg.get('content', '')
-                except Exception as e:
-                    print(f"Groq fallback failed: {e}")
+                model = GenerativeModel('gemini-1.5-flash')
+                safety_settings = [
+                    SafetySetting(category=HarmCategory.HARASSMENT, threshold=HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE),
+                    SafetySetting(category=HarmCategory.HATE_SPEECH, threshold=HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE),
+                    SafetySetting(category=HarmCategory.SEXUALLY_EXPLICIT, threshold=HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE),
+                    SafetySetting(category=HarmCategory.DANGEROUS_CONTENT, threshold=HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE)
+                ]
+                response = model.generate_content(prompt, safety_settings=safety_settings)
+                response_text = response.text if hasattr(response, 'text') else str(response)
+            except Exception as e:
+                print(f"Gemini API call failed: {e}")
+                response_text = ''
 
-        groq_thread = threading.Thread(target=call_groq)
-        groq_thread.start()
-        groq_thread.join(timeout=15.0)
+        gemini_thread = threading.Thread(target=call_gemini)
+        gemini_thread.start()
+        gemini_thread.join(timeout=15.0)
 
         if response_text:
             summary = response_text.strip()
@@ -355,11 +342,13 @@ Mime Type: '{mime_type}'
 
     except Exception as e:
         print(f"[AI Processor Error] {e}")
-        try:
-            cur.execute("UPDATE files SET summary = %s WHERE id = %s", (f"AI Error: {str(e)[:80]}", file_id))
-            db.commit()
-        except Exception:
-            pass
+        # Safely attempt to record the error in DB only if cursor is available
+        if 'cur' in locals() and cur is not None:
+            try:
+                cur.execute("UPDATE files SET summary = %s WHERE id = %s", (f"AI Error: {str(e)[:80]}", file_id))
+                db.commit()
+            except Exception:
+                pass
     finally:
         if db:
             db.close()

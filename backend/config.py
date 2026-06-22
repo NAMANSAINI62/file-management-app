@@ -52,10 +52,13 @@ class Config:
         '.jpg': {'image/jpeg'},
         '.jpeg': {'image/jpeg'},
         '.pdf': {'application/pdf'},
-        '.doc': {'application/msword', 'application/octet-stream'},
+        '.doc': {'application/msword', 'application/octet-stream', 'application/vnd.ms-word'},
         '.docx': {
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             'application/zip',
+            'application/x-zip-compressed',
+            'application/octet-stream',
+            'application/msword'
         },
         '.txt': {'text/plain'},
     }

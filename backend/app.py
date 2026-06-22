@@ -273,6 +273,20 @@ def process_file_ai(file_id, file_bytes, original_name, mime_type):
                         extracted_text += page_text + "\n"
             except Exception as e:
                 print(f"Error reading PDF {original_name}: {e}")
+        elif ext == '.docx':
+            try:
+                import zipfile
+                import xml.etree.ElementTree as ET
+                with zipfile.ZipFile(tmp_path) as docx:
+                    xml_content = docx.read('word/document.xml')
+                    tree = ET.XML(xml_content)
+                    ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
+                    for paragraph in tree.iterfind('.//w:p', ns):
+                        texts = [node.text for node in paragraph.iterfind('.//w:t', ns) if node.text]
+                        if texts:
+                            extracted_text += ''.join(texts) + "\n"
+            except Exception as e:
+                print(f"Error reading DOCX {original_name}: {e}")
         elif ext == '.txt':
             try:
                 extracted_text = file_bytes.decode('utf-8', errors='ignore')[:10000]

@@ -12,7 +12,7 @@ import json
 import jwt
 from werkzeug.security import generate_password_hash, check_password_hash
 from google.generativeai import GenerativeModel, configure
-from google.generativeai.types import HarmCategory, HarmBlockThreshold, SafetySetting
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 import pypdf
 from supabase import create_client, Client
 
@@ -312,10 +312,10 @@ Mime Type: '{mime_type}'
             try:
                 model = GenerativeModel('gemini-1.5-flash')
                 safety_settings = [
-                    SafetySetting(category=HarmCategory.HARASSMENT, threshold=HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE),
-                    SafetySetting(category=HarmCategory.HATE_SPEECH, threshold=HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE),
-                    SafetySetting(category=HarmCategory.SEXUALLY_EXPLICIT, threshold=HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE),
-                    SafetySetting(category=HarmCategory.DANGEROUS_CONTENT, threshold=HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE)
+                    {"category": HarmCategory.HARASSMENT, "threshold": HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE},
+                    {"category": HarmCategory.HATE_SPEECH, "threshold": HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE},
+                    {"category": HarmCategory.SEXUALLY_EXPLICIT, "threshold": HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE},
+                    {"category": HarmCategory.DANGEROUS_CONTENT, "threshold": HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE}
                 ]
                 response = model.generate_content(prompt, safety_settings=safety_settings)
                 response_text = response.text if hasattr(response, 'text') else str(response)

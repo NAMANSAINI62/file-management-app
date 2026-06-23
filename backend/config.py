@@ -33,8 +33,13 @@ class Config:
     if not JWT_SECRET:
         raise ValueError("ERROR: JWT_SECRET not set in .env file! This is required for security.")
     
-    GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
+    GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+    # Ensure the API key is set and not a placeholder value. This prevents accidental exposure of a dummy or empty key.
+    if not GEMINI_API_KEY or GEMINI_API_KEY.strip() == '' or 'YOUR_' in GEMINI_API_KEY:
+        raise ValueError("ERROR: GEMINI_API_KEY not set or contains placeholder. Set a valid key in .env.")
     
+    # Keep the old GROQ key line commented for reference (do not expose the value)
+    # GROQ_API_KEY = os.environ.get('GROQ_API_KEY')    
     # Supabase Configuration
     SUPABASE_URL = os.environ.get('SUPABASE_URL')
     SUPABASE_SERVICE_KEY = os.environ.get('SUPABASE_SERVICE_KEY')

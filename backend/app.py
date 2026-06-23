@@ -11,8 +11,8 @@ import threading
 import json
 import jwt
 from werkzeug.security import generate_password_hash, check_password_hash
-from google.generativeai import GenerativeModel, configure
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
+from google import genai
+from google.genai import types as genai_types
 import pypdf
 from supabase import create_client, Client
 
@@ -42,8 +42,10 @@ ALLOWED_MIME_BY_EXT = Config.ALLOWED_MIME_BY_EXT
 JWT_SECRET = Config.JWT_SECRET
 DATABASE_URL = Config.DATABASE_URL
 GEMINI_API_KEY = Config.GEMINI_API_KEY
+# Initialize new google-genai client
+gemini_client = None
 if GEMINI_API_KEY:
-    configure(api_key=GEMINI_API_KEY)
+    gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 SUPABASE_BUCKET = Config.SUPABASE_BUCKET
 
 
@@ -260,7 +262,7 @@ def process_file_ai(file_id, file_bytes, original_name, mime_type):
 
         cur = db.cursor(cursor_factory=RealDictCursor)
 
-        if not Config.GEMINI_API_KEY:
+        if not gemini_client:
             cur.execute("UPDATE files SET summary = %s WHERE id = %s", ("Gemini API key not configured", file_id))
             db.commit()
             return
@@ -314,15 +316,32 @@ Mime Type: '{mime_type}'
         def call_gemini():
             nonlocal response_text
             try:
-                model = GenerativeModel('gemini-1.5-flash')
                 safety_settings = [
-                    {"category": HarmCategory.HARASSMENT, "threshold": HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE},
-                    {"category": HarmCategory.HATE_SPEECH, "threshold": HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE},
-                    {"category": HarmCategory.SEXUALLY_EXPLICIT, "threshold": HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE},
-                    {"category": HarmCategory.DANGEROUS_CONTENT, "threshold": HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE}
+                    genai_types.SafetySetting(
+                        category='HARM_CATEGORY_HARASSMENT',
+                        threshold='BLOCK_MEDIUM_AND_ABOVE'
+                    ),
+                    genai_types.SafetySetting(
+                        category='HARM_CATEGORY_HATE_SPEECH',
+                        threshold='BLOCK_MEDIUM_AND_ABOVE'
+                    ),
+                    genai_types.SafetySetting(
+                        category='HARM_CATEGORY_SEXUALLY_EXPLICIT',
+                        threshold='BLOCK_MEDIUM_AND_ABOVE'
+                    ),
+                    genai_types.SafetySetting(
+                        category='HARM_CATEGORY_DANGEROUS_CONTENT',
+                        threshold='BLOCK_MEDIUM_AND_ABOVE'
+                    ),
                 ]
-                response = model.generate_content(prompt, safety_settings=safety_settings)
-                response_text = response.text if hasattr(response, 'text') else str(response)
+                response = gemini_client.models.generate_content(
+                    model='gemini-1.5-flash',
+                    contents=prompt,
+                    config=genai_types.GenerateContentConfig(
+                        safety_settings=safety_settings
+                    )
+                )
+                response_text = response.text if response.text else ''
             except Exception as e:
                 print(f"Gemini API call failed: {e}")
                 response_text = ''

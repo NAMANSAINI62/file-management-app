@@ -118,8 +118,8 @@ def allowed_extension(filename):
     return ext in ALLOWED_EXT
 
 def detect_mime(file_obj, filename):
-    chunk = file_obj.stream.read(2048)
-    file_obj.stream.seek(0)
+    chunk = file_obj.read(2048)
+    file_obj.seek(0)
     if magic is not None:
         try:
             return magic.from_buffer(chunk, mime=True)
@@ -246,6 +246,13 @@ def process_file_ai(file_id, file_bytes, original_name, mime_type):
                 extracted_text = file_bytes.decode('utf-8', errors='ignore')[:10000]
             except Exception as e:
                 print(f"Error reading TXT {original_name}: {e}")
+        if not extracted_text.strip():
+            summary = f"No content could be extracted from this {ext} file."
+            cur.execute("UPDATE files SET summary = %s WHERE id = %s", (summary, file_id))
+            db.commit()
+            print(f"[AI Processor] No extractable text for file ID {file_id}")
+            return
+
         prompt = f"""Summarize the core topic and main purpose of the text below in exactly one short sentence (less than 20 words). Do not include any introductory words or repeat the prompt.
 
 Text: {extracted_text[:4000]}
@@ -373,6 +380,9 @@ def upload():
         try:
             file_bytes = f.read()
             f_size = len(file_bytes)
+            if f_size == 0:
+                errors.append(f"{filename}: file is empty (0 bytes). Save the file first, then upload again.")
+                continue
             if supabase_client:
                 supabase_client.storage.from_(SUPABASE_BUCKET).upload(
                     path=save_name,

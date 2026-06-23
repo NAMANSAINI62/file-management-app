@@ -19,10 +19,14 @@ function UploadDropzone({ onUploadSuccess }) {
     const newErrors = [];
 
     selectedFiles.forEach((f) => {
-      if (isAllowedFile(f.name)) {
-        validFiles.push(f);
-      } else {
+      if (!isAllowedFile(f.name)) {
         newErrors.push(`"${f.name}" rejected — sirf PNG, JPG, PDF, Word, TXT allowed hain.`);
+      } else if (f.size === 0) {
+        newErrors.push(
+          `"${f.name}" khali hai (0 bytes). Pehle Notepad mein Ctrl+S se save karo, phir "Choose files" se upload karo — drag & drop mat use karo.`
+        );
+      } else {
+        validFiles.push(f);
       }
     });
 
@@ -122,7 +126,12 @@ function UploadDropzone({ onUploadSuccess }) {
           <div className="space-y-2">
             {files.map((f, i) => (
               <div key={i} className="flex items-center justify-between rounded-md bg-slate-50 p-2">
-                <div className="text-sm text-slate-700">{f.name}</div>
+                <div className="text-sm text-slate-700">
+                  {f.name}
+                  <span className="ml-2 text-slate-400">
+                    ({f.size < 1024 ? `${f.size} Bytes` : `${(f.size / 1024).toFixed(2)} KB`})
+                  </span>
+                </div>
                 <button onClick={() => removeFile(i)} className="text-sm text-white bg-red-600 rounded-md px-2 py-1">{"Remove"}</button>
               </div>
             ))}

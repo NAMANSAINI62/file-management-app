@@ -19,7 +19,7 @@ export async function uploadFiles(payload) {
   }
 
   const resp = await axios.post(`${API_BASE}/api/upload`, form, {
-    headers: { 'Content-Type': 'multipart/form-data', ...authHeader() },
+    headers: { ...authHeader() },
   });
   return resp.data;
 }

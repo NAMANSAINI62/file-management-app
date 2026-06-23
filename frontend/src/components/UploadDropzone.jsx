@@ -1,23 +1,18 @@
 import { useState, useRef } from 'react';
 import { uploadFiles } from '../services/api';
 
-// Allowed file extensions ki list (frontend validation ke liye)
 const ALLOWED_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.pdf', '.doc', '.docx', '.txt'];
 
 function UploadDropzone({ onUploadSuccess }) {
-  // files: user ne jo files select ki hain unki list
-  // errors: agar koi file reject hui toh uska message
   const [files, setFiles] = useState([]);
   const [errors, setErrors] = useState([]);
-  const inputRef = useRef(null); // hidden file input ko control karne ke liye
+  const inputRef = useRef(null);
 
-  // File extension check karne ka function
   const isAllowedFile = (filename) => {
-    const ext = '.' + filename.split('.').pop().toLowerCase(); // e.g. "resume.pdf" => ".pdf"
+    const ext = '.' + filename.split('.').pop().toLowerCase();
     return ALLOWED_EXTENSIONS.includes(ext);
   };
 
-  // Files ko validate karke state mein add karna
   const validateAndAdd = (fileList) => {
     const selectedFiles = Array.from(fileList || []);
     const validFiles = [];
@@ -25,7 +20,7 @@ function UploadDropzone({ onUploadSuccess }) {
 
     selectedFiles.forEach((f) => {
       if (isAllowedFile(f.name)) {
-        validFiles.push(f); // Allowed hai toh add karo
+        validFiles.push(f);
       } else {
         newErrors.push(`"${f.name}" rejected — sirf PNG, JPG, PDF, Word, TXT allowed hain.`);
       }
@@ -39,24 +34,20 @@ function UploadDropzone({ onUploadSuccess }) {
     }
   };
 
-  // Jab user file drag karke drop kare
   const handleDrop = (e) => {
-    e.preventDefault(); // Browser ka default behavior rokna (file open hone se)
-    validateAndAdd(e.dataTransfer.files); // Drop ki gayi files ko validate karo
+    e.preventDefault();
+    validateAndAdd(e.dataTransfer.files);
   };
 
-  // Jab user "Choose files" button se files select kare
   const handleFileChange = (e) => {
     validateAndAdd(e.target.files);
-    e.target.value = null; // Same file dobara select kar sake isliye reset kiya
+    e.target.value = null;
   };
 
-  // Kisi ek file ko list se hatana
   const removeFile = (idx) => {
-    setFiles((prev) => prev.filter((_, i) => i !== idx)); // Use _ when we don't need the first parameter of the callback function.
+    setFiles((prev) => prev.filter((_, i) => i !== idx));
   };
 
-  // Backend par files bhejne ka function
   const handleUpload = async () => {
     if (files.length === 0) {
       setErrors((prev) => {
@@ -68,22 +59,19 @@ function UploadDropzone({ onUploadSuccess }) {
       return;
     }
 
-    // FormData = ek special package jisme files pack hoti hain backend ke liye
     const form = new FormData();
     files.forEach((f) => {
-      form.append('files', f); // Har file ko package mein daalo
+      form.append('files', f);
     });
 
-    try { 
-      const data = await uploadFiles(form); // api.js ke through backend ko bhejo
+    try {
+      const data = await uploadFiles(form);
 
       if (data.errors && data.errors.length > 0) {
         setErrors((prev) => [...prev, ...data.errors]);
       }
       if (data.saved && data.saved.length > 0) {
-        setFiles([]); // Upload ke baad selected list clear karo
-
-        // Dashboard ko batao ki refresh kare file list
+        setFiles([]);
         if (onUploadSuccess) {
           onUploadSuccess();
         }
@@ -96,7 +84,6 @@ function UploadDropzone({ onUploadSuccess }) {
 
   return (
     <div>
-      {/* Drag & Drop Area */}
       <div
         onDrop={handleDrop}
         onDragOver={(e) => e.preventDefault()}
@@ -108,7 +95,7 @@ function UploadDropzone({ onUploadSuccess }) {
           <button
             onClick={() => inputRef.current?.click()}
             className="rounded-md bg-blue-600 px-3 py-1 text-white active:scale-95 cursor:pointer"
-          > 
+          >
             {"Choose files"}
           </button>
           <input
@@ -123,7 +110,6 @@ function UploadDropzone({ onUploadSuccess }) {
       </div>
 
       <div className="mt-4">
-        {/* Error messages display */}
         {errors.length > 0 && (
           <div className="mb-3 rounded-md bg-red-50 p-2 text-sm text-red-700">
             {errors.map((err, i) => (
@@ -132,7 +118,6 @@ function UploadDropzone({ onUploadSuccess }) {
           </div>
         )}
 
-        {/* Selected files ki list */}
         {files.length > 0 && (
           <div className="space-y-2">
             {files.map((f, i) => (
@@ -144,14 +129,13 @@ function UploadDropzone({ onUploadSuccess }) {
           </div>
         )}
 
-        {/* Upload aur Clear buttons */}
         <div className="mt-4 flex gap-2">
-          <button 
-            onClick={handleUpload} 
+          <button
+            onClick={handleUpload}
             disabled={files.length === 0}
             className={`rounded-md px-3 py-1 text-white transition-all ${
-              files.length === 0 
-                ? 'bg-green-400 opacity-50 cursor-not-allowed' 
+              files.length === 0
+                ? 'bg-green-400 opacity-50 cursor-not-allowed'
                 : 'bg-green-600 active:scale-95 cursor-pointer'
             }`}
           >

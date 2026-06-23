@@ -8,18 +8,27 @@ node_modules/
 .env.*.local
 backend/.env
 
-# Backend upload files (ignore all uploads but keep the directory layout if needed)
+# Backend uploads and database
 backend/uploads/*
 !backend/uploads/.gitkeep
+*.db
+database.db
 
 # Python cache and files
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-.pytest_cache/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
 .venv/
 venv/
+env/
 ENV/
 
 # Production builds
@@ -31,9 +40,11 @@ build/
 .vscode/
 .idea/
 .DS_Store
+Thumbs.db
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+*~
 *.log

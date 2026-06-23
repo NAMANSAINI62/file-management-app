@@ -18,13 +18,9 @@ function App() {
           </ProtectedRoute>
         }
       />
-      <Route path="*" element={<Navigate to="/login" replace />} /> // If we write this line before any other routes then it matches everything, hence specific routes ignored. So we write it at the last.
+      <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
   );
 }
 
 export default App;
-
-// replace React Router ke <Navigate> component mein ek boolean prop hai jo browser history stack ko control karta hai redirection ke waqt.
-// Routes allow you to show different components at different URLs
-// Routes handle browser history properly

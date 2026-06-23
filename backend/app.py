@@ -152,6 +152,10 @@ def allowed_mime(filename, mime_value):
     expected = ALLOWED_MIME_BY_EXT.get(ext, set())
     if not expected:
         return False
+    # If magic library is unavailable and mime falls back to octet-stream,
+    # still allow if extension is valid (prevents .txt, .doc, etc. from being blocked)
+    if mime_main == 'application/octet-stream' and ext in ALLOWED_EXT:
+        return True
     return mime_main in {m.lower() for m in expected}
 
 

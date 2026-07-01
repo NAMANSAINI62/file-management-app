@@ -5,6 +5,7 @@ psycopg2==2.9.11
 python-dotenv==1.0.1
 PyJWT==2.9.0
 pypdf==4.3.1
-supabase==2.5.0
-google-genai>=1.22.0
-python-magic
+google-genai==2.8.0
+# supabase is optional - only install if you use cloud Supabase storage.
+# It conflicts with google-genai over httpx versions.
+# To enable: pip install "supabase>=2.5.0" separately after deployment.

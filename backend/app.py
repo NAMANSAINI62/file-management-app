@@ -14,7 +14,11 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from google import genai
 from google.genai import types as genai_types
 import pypdf
-from supabase import create_client, Client
+try:
+    from supabase import create_client, Client as SupabaseClient
+except ImportError:
+    create_client = None
+    SupabaseClient = None
 from config import Config
 
 try:
@@ -28,8 +32,8 @@ app.config['JWT_SECRET'] = Config.JWT_SECRET
 
 CORS(app, supports_credentials=True, origins=[Config.FRONTEND_URL], allow_headers=['Authorization', 'Content-Type'])
 
-supabase_client: Client = None
-if Config.SUPABASE_URL and Config.SUPABASE_SERVICE_KEY:
+supabase_client = None
+if Config.SUPABASE_URL and Config.SUPABASE_SERVICE_KEY and create_client:
     supabase_client = create_client(Config.SUPABASE_URL, Config.SUPABASE_SERVICE_KEY)
 
 ALLOWED_EXT = Config.ALLOWED_EXTENSIONS

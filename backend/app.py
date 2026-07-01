@@ -283,9 +283,7 @@ Text: {extracted_text[:4000]}
                     response = gemini_client.models.generate_content(
                         model='gemini-2.0-flash-exp',
                         contents=prompt,
-                        config=genai_types.GenerateContentConfig(
-                            safety_settings=safety_settings
-                        )
+                        config=genai_types.GenerateContentConfig(safety_settings=safety_settings)
                     )
                     response_text = response.text if response.text else ''
                 except Exception as e:

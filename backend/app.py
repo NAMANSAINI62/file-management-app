@@ -8,7 +8,6 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import datetime
 import threading
-import json
 import jwt
 from werkzeug.security import generate_password_hash, check_password_hash
 from google import genai
@@ -46,6 +45,9 @@ gemini_client = None
 if GEMINI_API_KEY:
     gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 SUPABASE_BUCKET = Config.SUPABASE_BUCKET
+
+GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-2.0-flash')
+OLLAMA_MODELS = os.environ.get('OLLAMA_MODELS', 'phi3:latest,llama3:latest,tinyllama:latest').split(',')
 
 def get_db():
     db = getattr(g, '_database', None)
@@ -285,7 +287,7 @@ Text: {extracted_text[:4000]}
                         ),
                     ]
                     response = gemini_client.models.generate_content(
-                        model='gemini-2.0-flash-exp',
+                        model=GEMINI_MODEL,
                         contents=prompt,
                         config=genai_types.GenerateContentConfig(safety_settings=safety_settings)
                     )
@@ -299,7 +301,7 @@ Text: {extracted_text[:4000]}
         if not response_text:
             print("[AI Processor] Gemini is not available or timed out. Falling back to local Ollama...")
             import requests
-            for model in ['phi3:latest', 'llama3:latest', 'tinyllama:latest']:
+            for model in OLLAMA_MODELS:
                 try:
                     if 'tinyllama' in model:
                         prompt_to_send = f"<|system|>\nSummarize the text below in exactly one sentence (max 20 words). Do not repeat these instructions.<|user|>\nText:\n{extracted_text[:2000]}\n<|assistant|>\n"

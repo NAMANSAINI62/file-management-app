@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Dashboard from './pages/Dashboard';
+import SharePage from './pages/SharePage';
 import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
@@ -18,6 +19,7 @@ function App() {
           </ProtectedRoute>
         }
       />
+      <Route path="/share/:shareToken" element={<SharePage />} />
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
   );

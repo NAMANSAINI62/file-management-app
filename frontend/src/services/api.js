@@ -61,3 +61,22 @@ export async function deleteFile(fileId) {
   });
   return resp.data;
 }
+
+export async function shareFile(fileId) {
+  const resp = await axios.post(`${API_BASE}/api/files/${fileId}/share`, {}, {
+    headers: authHeader(),
+  });
+  return resp.data;
+}
+
+export async function unshareFile(fileId) {
+  const resp = await axios.post(`${API_BASE}/api/files/${fileId}/unshare`, {}, {
+    headers: authHeader(),
+  });
+  return resp.data;
+}
+
+export async function getSharedFile(shareToken) {
+  const resp = await axios.get(`${API_BASE}/api/share/${shareToken}`);
+  return resp.data;
+}

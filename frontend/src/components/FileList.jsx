@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { deleteFile } from '../services/api';
+import { deleteFile, shareFile, unshareFile } from '../services/api';
 
 function FileList(props) {
   const files = props.files;
@@ -7,8 +7,41 @@ function FileList(props) {
 
   const [fileToDelete, setFileToDelete] = useState(null);
   const [summaryFile, setSummaryFile] = useState(null);
+  const [sharingFile, setSharingFile] = useState(null);
+  const [copied, setCopied] = useState(false);
 
   const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
+  async function handleShareBtn(file) {
+    try {
+      if (file.share_token) {
+        setSharingFile(file);
+      } else {
+        const updatedFile = await shareFile(file.id);
+        setSharingFile(updatedFile);
+        if (onRefresh) onRefresh();
+      }
+    } catch (error) {
+      alert("Error sharing file");
+    }
+  }
+
+  async function handleUnshare() {
+    try {
+      await unshareFile(sharingFile.id);
+      setSharingFile(null);
+      if (onRefresh) onRefresh();
+    } catch (error) {
+      alert("Error unsharing file");
+    }
+  }
+
+  function handleCopyLink() {
+    const shareUrl = `${window.location.origin}/share/${sharingFile.share_token}`;
+    navigator.clipboard.writeText(shareUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
 
   function formatSize(bytes) {
     if (bytes === 0) {
@@ -120,11 +153,17 @@ function FileList(props) {
                   >
                     {!file.summary || file.summary === 'Processing...' ? '⏳ Processing...' : '📄 Summary'}
                   </button>
-                  <button 
+                   <button 
                     onClick={() => handleDownloadBtn(file)}
                     className="bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-200 cursor-pointer"
                   >
                     {"Download"}
+                  </button>
+                  <button 
+                    onClick={() => handleShareBtn(file)}
+                    className="bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-emerald-200 cursor-pointer"
+                  >
+                    {file.share_token ? "🔗 Shared" : "🔗 Share"}
                   </button>
                   <button 
                     onClick={() => handleDeleteBtn(file)}
@@ -181,6 +220,51 @@ function FileList(props) {
           >
             {"Close"}
           </button>
+        </div>
+      </div>
+    )}
+
+    {sharingFile && (
+      <div className="fixed inset-0 bg-slate-900/20 backdrop-blur-sm flex items-center justify-center z-50">
+        <div className="bg-white p-6 rounded-xl shadow-lg text-center max-w-md w-full mx-4">
+          <div className="text-emerald-500 text-4xl mb-3">🔗</div>
+          <h3 className="text-lg font-bold text-gray-800 mb-1">{"Share File"}</h3>
+          <p className="text-xs text-gray-400 mb-4">{sharingFile.original_name}</p>
+          
+          <div className="mb-4">
+            <div className="flex items-center bg-gray-50 border border-gray-200 rounded-lg overflow-hidden p-1">
+              <input
+                type="text"
+                readOnly
+                value={`${window.location.origin}/share/${sharingFile.share_token}`}
+                className="w-full bg-transparent px-3 py-1.5 text-xs text-gray-600 focus:outline-none"
+              />
+              <button
+                onClick={handleCopyLink}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-md text-xs font-semibold transition active:scale-95 whitespace-nowrap cursor-pointer"
+              >
+                {copied ? 'Copied!' : 'Copy Link'}
+              </button>
+            </div>
+            <p className="text-amber-500 text-[11px] mt-2 font-medium">
+              {"⏳ Automatically expires in 24 hours"}
+            </p>
+          </div>
+
+          <div className="flex flex-col space-y-2 mt-6">
+            <button
+              onClick={handleUnshare}
+              className="w-full py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold transition duration-200 active:scale-95 cursor-pointer"
+            >
+              {"Unshare File (Make Private)"}
+            </button>
+            <button 
+              onClick={() => setSharingFile(null)} 
+              className="w-full py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-bold transition duration-200 active:scale-95 cursor-pointer"
+            >
+              {"Close"}
+            </button>
+          </div>
         </div>
       </div>
     )}

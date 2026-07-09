@@ -13,27 +13,6 @@ A modern, full-stack web application that allows users to securely upload, manag
 
 ---
 
-## 📸 Screenshots
-
-*Note: Add your screenshots to the `screenshots` folder in the root directory.*
-
-### 1. Login Page
-![Login Page](./screenshots/login.png)
-
-### 2. Signup Page
-![Signup Page](./screenshots/signup.png)
-
-### 3. User Dashboard
-![User Dashboard](./screenshots/dashboard.png)
-
-### 4. Uploading a File
-![Upload Dropzone](./screenshots/upload.png)
-
-### 5. AI Summary Modal
-![AI Summary Modal](./screenshots/summary-modal.png)
-
----
-
 ## 🛠️ Technology Stack
 
 **Frontend:**

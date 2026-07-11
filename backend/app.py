@@ -59,36 +59,43 @@ def get_db():
     return db
 
 def init_db():
-    db = get_db()
-    cur = db.cursor(cursor_factory=RealDictCursor)
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id SERIAL PRIMARY KEY,
-            email TEXT UNIQUE NOT NULL,
-            name TEXT,
-            password_hash TEXT NOT NULL,
-            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS files (
-            id SERIAL PRIMARY KEY,
-            user_id INTEGER NOT NULL,
-            original_name TEXT NOT NULL,
-            stored_name TEXT NOT NULL,
-            file_size INTEGER NOT NULL,
-            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-            summary TEXT,
-            category VARCHAR(50),
-            FOREIGN KEY (user_id) REFERENCES users (id)
-        )
-    ''')
     try:
-        cur.execute("ALTER TABLE files ADD COLUMN IF NOT EXISTS summary TEXT")
-        cur.execute("ALTER TABLE files ADD COLUMN IF NOT EXISTS category VARCHAR(50)")
+        db = get_db()
+        cur = db.cursor(cursor_factory=RealDictCursor)
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                email TEXT UNIQUE NOT NULL,
+                name TEXT,
+                password_hash TEXT NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS files (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                original_name TEXT NOT NULL,
+                stored_name TEXT NOT NULL,
+                file_size INTEGER NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                summary TEXT,
+                category VARCHAR(50),
+                share_token VARCHAR(64) UNIQUE,
+                share_expires_at TIMESTAMPTZ,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+        ''')
+        try:
+            cur.execute("ALTER TABLE files ADD COLUMN IF NOT EXISTS summary TEXT")
+            cur.execute("ALTER TABLE files ADD COLUMN IF NOT EXISTS category VARCHAR(50)")
+            cur.execute("ALTER TABLE files ADD COLUMN IF NOT EXISTS share_token VARCHAR(64) UNIQUE")
+            cur.execute("ALTER TABLE files ADD COLUMN IF NOT EXISTS share_expires_at TIMESTAMPTZ")
+        except Exception as e:
+            print(f"[Schema Update Info] {e}")
+        db.commit()
     except Exception as e:
-        print(f"[Schema Update Info] {e}")
-    db.commit()
+        print(f"[DB Init Warning] Could not connect to database on startup: {e}")
 
 @app.teardown_appcontext
 def close_connection(exception):
@@ -206,6 +213,13 @@ def me():
         return jsonify({'user': None}), 200
     return jsonify({'user': {'id': user['id'], 'email': user['email'], 'name': user['name']}}), 200
 
+import re
+
+def clean_summary_text(text):
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    text = text.replace('<|system|>', '').replace('<|user|>', '').replace('<|assistant|>', '')
+    return text.strip()
+
 def process_file_ai(file_id, file_bytes, original_name, mime_type):
     db = None
     tmp_path = None
@@ -259,7 +273,7 @@ def process_file_ai(file_id, file_bytes, original_name, mime_type):
             print(f"[AI Processor] No extractable text for file ID {file_id}")
             return
 
-        prompt = f"""Summarize the core topic and main purpose of the text below in exactly one short sentence (less than 20 words). Do not include any introductory words or repeat the prompt.
+        prompt = f"""Summarize the core topic and main purpose of the text below in exactly one short sentence (less than 20 words). Do not include any introductory words, prefixes, or `<think>` tags. Only return the summary sentence.
 
 Text: {extracted_text[:4000]}
 """
@@ -304,7 +318,7 @@ Text: {extracted_text[:4000]}
             for model in OLLAMA_MODELS:
                 try:
                     if 'tinyllama' in model:
-                        prompt_to_send = f"<|system|>\nSummarize the text below in exactly one sentence (max 20 words). Do not repeat these instructions.<|user|>\nText:\n{extracted_text[:2000]}\n<|assistant|>\n"
+                        prompt_to_send = f"<|system|>\nSummarize the text below in exactly one sentence (max 20 words). Do not repeat instructions.<|user|>\nText:\n{extracted_text[:2000]}\n<|assistant|>\n"
                     else:
                         prompt_to_send = prompt
                     resp = requests.post(
@@ -326,10 +340,10 @@ Text: {extracted_text[:4000]}
                     print(f"Ollama fallback with {model} failed/timed out: {e}")
                     continue
         if response_text:
-            summary = response_text.strip()
+            summary = clean_summary_text(response_text)
             lines = [l.strip() for l in summary.split('\n') if l.strip()]
             if lines:
-                summary = lines[0]
+                summary = lines[-1]
         elif extracted_text.strip():
             clean_text = extracted_text.strip().replace('\n', ' ')
             summary = f"{clean_text[:120]}..."
@@ -485,6 +499,115 @@ def delete_user_file(file_id):
     cur.execute('DELETE FROM files WHERE id = %s', (file_id,))
     db.commit()
     return jsonify({'ok': True}), 200
+
+# --- File Sharing Endpoints ---
+
+@app.route('/api/files/<int:file_id>/share', methods=['POST'])
+def share_file(file_id):
+    uid = get_current_user_id()
+    if not uid:
+        return jsonify({'error': 'Unauthorized'}), 401
+        
+    db = get_db()
+    cur = db.cursor(cursor_factory=RealDictCursor)
+    cur.execute('SELECT * FROM files WHERE id = %s AND user_id = %s', (file_id, uid))
+    row = cur.fetchone()
+    if not row:
+        return jsonify({'error': 'File not found or access denied'}), 404
+        
+    share_token = row.get('share_token')
+    if not share_token:
+        share_token = uuid.uuid4().hex
+        
+    # Set expiration to 24 hours from now
+    expires_at = datetime.datetime.utcnow() + datetime.timedelta(days=1)
+    
+    cur.execute(
+        'UPDATE files SET share_token = %s, share_expires_at = %s WHERE id = %s RETURNING *',
+        (share_token, expires_at, file_id)
+    )
+    updated_row = cur.fetchone()
+    db.commit()
+    
+    return jsonify({
+        'id': updated_row['id'],
+        'original_name': updated_row['original_name'],
+        'file_size': updated_row['file_size'],
+        'created_at': updated_row['created_at'].isoformat() if hasattr(updated_row['created_at'], 'isoformat') else updated_row['created_at'],
+        'summary': updated_row['summary'],
+        'share_token': updated_row['share_token'],
+        'share_expires_at': updated_row['share_expires_at'].isoformat() if updated_row['share_expires_at'] else None
+    }), 200
+
+@app.route('/api/files/<int:file_id>/unshare', methods=['POST'])
+def unshare_file(file_id):
+    uid = get_current_user_id()
+    if not uid:
+        return jsonify({'error': 'Unauthorized'}), 401
+        
+    db = get_db()
+    cur = db.cursor(cursor_factory=RealDictCursor)
+    cur.execute('SELECT * FROM files WHERE id = %s AND user_id = %s', (file_id, uid))
+    row = cur.fetchone()
+    if not row:
+        return jsonify({'error': 'File not found or access denied'}), 404
+        
+    cur.execute(
+        'UPDATE files SET share_token = NULL, share_expires_at = NULL WHERE id = %s',
+        (file_id,)
+    )
+    db.commit()
+    return jsonify({'ok': True, 'message': 'File is now private'}), 200
+
+@app.route('/api/share/<share_token>', methods=['GET'])
+def get_shared_file_info(share_token):
+    db = get_db()
+    cur = db.cursor(cursor_factory=RealDictCursor)
+    cur.execute('SELECT * FROM files WHERE share_token = %s', (share_token,))
+    row = cur.fetchone()
+    
+    if not row:
+        return jsonify({'error': 'File not found or link is invalid'}), 404
+        
+    if row['share_expires_at']:
+        expires = row['share_expires_at']
+        now = datetime.datetime.now(datetime.timezone.utc)
+        if expires < now:
+            return jsonify({'error': 'This share link has expired'}), 410
+            
+    return jsonify({
+        'original_name': row['original_name'],
+        'file_size': row['file_size'],
+        'summary': row['summary'],
+        'share_expires_at': row['share_expires_at'].isoformat() if row['share_expires_at'] else None
+    }), 200
+
+@app.route('/api/share/<share_token>/download', methods=['GET'])
+def download_shared_file(share_token):
+    db = get_db()
+    cur = db.cursor(cursor_factory=RealDictCursor)
+    cur.execute('SELECT * FROM files WHERE share_token = %s', (share_token,))
+    row = cur.fetchone()
+    
+    if not row:
+        return jsonify({'error': 'File not found or link is invalid'}), 404
+        
+    if row['share_expires_at']:
+        expires = row['share_expires_at']
+        now = datetime.datetime.now(datetime.timezone.utc)
+        if expires < now:
+            return jsonify({'error': 'This share link has expired'}), 410
+            
+    if not supabase_client:
+        uploads_dir = os.path.join(app.root_path, 'uploads')
+        return send_from_directory(uploads_dir, row['stored_name'], as_attachment=True, download_name=row['original_name'])
+        
+    signed = supabase_client.storage.from_(SUPABASE_BUCKET).create_signed_url(
+        path=row['stored_name'],
+        expires_in=60
+    )
+    from flask import redirect
+    return redirect(signed['signedURL'])
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

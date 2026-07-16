@@ -8,4 +8,4 @@ pypdf==4.3.1
 google-genai==2.8.0
 # supabase is optional - only install if you use cloud Supabase storage.
 # It conflicts with google-genai over httpx versions.
-# To enable: pip install "supabase>=2.5.0" separately after deployment.
+supabase>=2.5.0

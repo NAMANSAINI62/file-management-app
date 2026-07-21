@@ -9,3 +9,5 @@ google-genai==2.8.0
 # supabase is optional - only install if you use cloud Supabase storage.
 # It conflicts with google-genai over httpx versions.
 supabase>=2.5.0
+defusedxml==0.7.1
+Flask-Limiter==3.8.0

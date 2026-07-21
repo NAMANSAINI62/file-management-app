@@ -8,7 +8,11 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import datetime
 import threading
+import concurrent.futures
 import jwt
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
 from werkzeug.security import generate_password_hash, check_password_hash
 from google import genai
 from google.genai import types as genai_types
@@ -28,6 +32,15 @@ except ImportError:
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = Config.MAX_CONTENT_LENGTH
 app.config['JWT_SECRET'] = Config.JWT_SECRET
+
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://"
+)
+
+executor = concurrent.futures.ThreadPoolExecutor(max_workers=5)
 
 CORS(app, supports_credentials=True, origins=[Config.FRONTEND_URL], allow_headers=['Authorization', 'Content-Type'])
 
@@ -164,6 +177,7 @@ def get_user_by_id(uid):
     return cur.fetchone()
 
 @app.route('/api/signup', methods=['POST'])
+@limiter.limit("5 per minute")
 def signup():
     data = request.get_json() or {}
     email = (data.get('email') or '').strip().lower()
@@ -186,6 +200,7 @@ def signup():
     return jsonify({'id': user['id'], 'email': user['email'], 'name': user['name'], 'message': 'Account created successfully'}), 201
 
 @app.route('/api/login', methods=['POST'])
+@limiter.limit("5 per minute")
 def login():
     data = request.get_json() or {}
     email = (data.get('email') or '').strip().lower()
@@ -250,10 +265,10 @@ def process_file_ai(file_id, file_bytes, original_name, mime_type):
         elif ext == '.docx':
             try:
                 import zipfile
-                import xml.etree.ElementTree as ET
+                import defusedxml.ElementTree as ET
                 with zipfile.ZipFile(tmp_path) as docx:
                     xml_content = docx.read('word/document.xml')
-                    tree = ET.XML(xml_content)
+                    tree = ET.fromstring(xml_content)
                     ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
                     for paragraph in tree.iterfind('.//w:p', ns):
                         texts = [node.text for node in paragraph.iterfind('.//w:t', ns) if node.text]
@@ -420,10 +435,7 @@ def upload():
             )
             file_id = cur.fetchone()['id']
             db.commit()
-            threading.Thread(
-                target=process_file_ai,
-                args=(file_id, file_bytes, filename, detected_mime)
-            ).start()
+            executor.submit(process_file_ai, file_id, file_bytes, filename, detected_mime)
             saved.append({'original': filename, 'stored': save_name, 'size': f_size})
         except Exception as e:
             print(f"Upload error: {e}")

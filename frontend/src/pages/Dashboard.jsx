@@ -72,8 +72,8 @@ function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 p-6">
-      <div className="mx-auto max-w-5xl rounded-3xl bg-white p-8 shadow-lg">
+    <div className="min-h-screen bg-slate-100 p-6 md:p-10">
+      <div className="mx-auto max-w-7xl rounded-3xl bg-white p-8 md:p-10 shadow-lg">
         <div className="flex items-center justify-between border-b pb-6 border-slate-200">
           <div>
             <h1 className="text-3xl font-extrabold text-slate-800 tracking-tight">{"File Dashboard"}</h1>

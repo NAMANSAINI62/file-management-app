@@ -118,30 +118,31 @@ function FileList(props) {
 
   return (
     <div>
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden overflow-x-auto">
-        <table className="w-full text-left border-collapse">
-        <thead className="bg-gray-100 border-b border-gray-200">
-          <tr>
-            <th className="p-4 font-semibold text-gray-600 text-sm">{"File Name"}</th>
-            <th className="p-4 font-semibold text-gray-600 text-sm">{"Size"}</th>
-            <th className="p-4 font-semibold text-gray-600 text-sm">{"Upload Date"}</th>
-            <th className="p-4 font-semibold text-gray-600 text-sm text-center">{"Actions"}</th>
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+        <div className="max-h-[380px] overflow-y-auto overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead className="bg-gray-100 border-b border-gray-200 sticky top-0 z-10 shadow-sm">
+              <tr>
+            <th className="py-4 px-6 font-semibold text-gray-600 text-sm whitespace-nowrap w-[35%]">{"File Name"}</th>
+            <th className="py-4 px-6 font-semibold text-gray-600 text-sm whitespace-nowrap w-[15%]">{"Size"}</th>
+            <th className="py-4 px-6 font-semibold text-gray-600 text-sm whitespace-nowrap w-[22%]">{"Upload Date"}</th>
+            <th className="py-4 px-6 font-semibold text-gray-600 text-sm text-center whitespace-nowrap w-[28%]">{"Actions"}</th>
           </tr>
         </thead>
         <tbody>
           {files.map((file) => {
             return (
-              <tr key={file.id} className="border-b border-gray-100 hover:bg-gray-50">
-                <td className="p-4 text-gray-800 font-medium">
+              <tr key={file.id} className="border-b border-gray-100 hover:bg-gray-50/80 transition-colors">
+                <td className="py-4 px-6 text-gray-800 font-medium whitespace-nowrap overflow-hidden text-ellipsis max-w-[280px]" title={file.original_name}>
                   {file.original_name}
                 </td>
-                <td className="p-4 text-gray-500 text-sm">
+                <td className="py-4 px-6 text-gray-500 text-sm whitespace-nowrap">
                   {formatSize(file.file_size)}
                 </td>
-                <td className="p-4 text-gray-500 text-sm">
+                <td className="py-4 px-6 text-gray-500 text-sm whitespace-nowrap">
                   {formatDate(file.created_at)}
                 </td>
-                <td className="p-4 flex justify-center space-x-2">
+                <td className="py-4 px-6 flex justify-center space-x-2 whitespace-nowrap">
                   <button 
                     onClick={() => setSummaryFile(file)}
                     disabled={!file.summary || file.summary === 'Processing...'}
@@ -177,6 +178,7 @@ function FileList(props) {
           })}
         </tbody>
       </table>
+        </div>
     </div>
 
     {fileToDelete && (

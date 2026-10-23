@@ -22,7 +22,11 @@ class Config:
     
     GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
     if not GEMINI_API_KEY or GEMINI_API_KEY.strip() == '' or 'YOUR_' in GEMINI_API_KEY:
-        print("WARNING: GEMINI_API_KEY not set or contains placeholder. AI summaries will be disabled.")
+        print("GEMINI_API_KEY not set or contains placeholder. AI summaries will be disabled.")
+    
+    GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
+    if not GROQ_API_KEY or GROQ_API_KEY.strip() == '' or 'YOUR_' in GROQ_API_KEY:
+        print("GROQ_API_KEY is not set or contains placeholder. Groq fallback will be disabled.")
     
     SUPABASE_URL = os.environ.get('SUPABASE_URL')
     SUPABASE_SERVICE_KEY = os.environ.get('SUPABASE_SERVICE_KEY')

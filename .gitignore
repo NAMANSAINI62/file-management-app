@@ -1,50 +1,31 @@
-# Dependency directories
-node_modules/
-
-# Local env files
+# Environment & Secrets
 .env
 *.env
-.env.local
-.env.*.local
 backend/.env
+frontend/.env
 
-# Backend uploads and database
+# Dependencies
+node_modules/
+frontend/node_modules/
+.venv/
+venv/
+
+# Python Cache & Artifacts
+__pycache__/
+*.py[cod]
+
+# Uploads & Database
 backend/uploads/*
 !backend/uploads/.gitkeep
 *.db
-database.db
 
-# Python cache and files
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# Virtual environments
-.venv/
-venv/
-env/
-ENV/
-
-# Production builds
+# Frontend Build
 dist/
-dist-ssr/
-build/
+frontend/dist/
 
-# Editor and OS files
-.vscode/
-.idea/
+# Logs & OS / IDE Files
+*.log
 .DS_Store
 Thumbs.db
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-*~
-*.log
+.vscode/
+.idea/

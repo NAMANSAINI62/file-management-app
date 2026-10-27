@@ -20,13 +20,9 @@ class Config:
     if not JWT_SECRET:
         raise ValueError("ERROR: JWT_SECRET not set in .env file! This is required for security.")
     
-    GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
-    if not GEMINI_API_KEY or GEMINI_API_KEY.strip() == '' or 'YOUR_' in GEMINI_API_KEY:
-        print("GEMINI_API_KEY not set or contains placeholder. AI summaries will be disabled.")
-    
     GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
     if not GROQ_API_KEY or GROQ_API_KEY.strip() == '' or 'YOUR_' in GROQ_API_KEY:
-        print("GROQ_API_KEY is not set or contains placeholder. Groq fallback will be disabled.")
+        print("GROQ_API_KEY is not set or contains placeholder. AI summaries will be disabled.")
     
     SUPABASE_URL = os.environ.get('SUPABASE_URL')
     SUPABASE_SERVICE_KEY = os.environ.get('SUPABASE_SERVICE_KEY')
@@ -42,13 +38,11 @@ class Config:
         '.jpg': {'image/jpeg'},
         '.jpeg': {'image/jpeg'},
         '.pdf': {'application/pdf'},
-        '.doc': {'application/msword', 'application/octet-stream', 'application/vnd.ms-word'},
+        '.doc': {'application/msword', 'application/vnd.ms-word'},
         '.docx': {
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             'application/zip',
-            'application/x-zip-compressed',
-            'application/octet-stream',
-            'application/msword'
+            'application/x-zip-compressed'
         },
         '.txt': {'text/plain'},
     }

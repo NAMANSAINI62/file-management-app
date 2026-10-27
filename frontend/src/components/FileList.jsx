@@ -213,8 +213,16 @@ function FileList(props) {
           <div className="text-purple-500 text-4xl mb-3">{"📄"}</div>
           <h3 className="text-lg font-bold text-gray-800 mb-1">{"AI Summary"}</h3>
           <p className="text-xs text-gray-400 mb-4">{summaryFile.original_name}</p>
-          <div className="bg-gray-50 rounded-lg p-4 text-left text-sm text-gray-700 leading-relaxed mb-6 max-h-60 overflow-y-auto">
-            {summaryFile.summary || 'No summary available.'}
+          <div className="bg-gray-50 rounded-lg p-4 text-left text-sm text-gray-700 leading-relaxed mb-6 max-h-72 overflow-y-auto">
+            {summaryFile.summary ? (
+              <ul className="list-disc pl-4 space-y-2">
+                {summaryFile.summary.split('\n').filter(Boolean).map((line, idx) => (
+                  <li key={idx} className="leading-snug">{line.replace(/^[-*•\d.]+\s*/, '')}</li>
+                ))}
+              </ul>
+            ) : (
+              'No summary available.'
+            )}
           </div>
           <button 
             onClick={() => setSummaryFile(null)} 
